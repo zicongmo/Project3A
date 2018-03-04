@@ -37,7 +37,14 @@ int main(int argc, char** argv){
 		fprintf(stderr, "Error: Specified file is not EXT2\n");
 		exit(1);
 	}
-
-	printf("Num inodes: %u\n", super.s_inodes_count);
+	
+	printf("SUPERBLOCK,%u,%u,%u,%u,%u,%u,%u\n",
+		   super.s_blocks_count,
+		   super.s_inodes_count,
+		   (EXT2_MIN_BLOCK_SIZE << super.s_log_block_size),
+		   super.s_inode_size,
+		   super.s_blocks_per_group,
+		   super.s_inodes_per_group,
+		   super.s_first_ino);
 	exit(0);
 }
