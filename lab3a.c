@@ -22,22 +22,22 @@ int main(int argc, char** argv){
 	int fd = open(argv[1], O_RDONLY);
 	if(fd < 0){
 		fprintf(stderr, "Error: %s\n", strerror(errno));
-		exit(1);
+		exit(2);
 	}
 
-	/* Get the superblock */
+	/* 1024 bytes */
 	struct ext2_super_block super;
 	lseek(fd, 1024, SEEK_SET); /* Put file offeset at 1024 */
 	int r = read(fd, &super, sizeof(super));
 	if(r < 0){
 		fprintf(stderr, "Error: %s\n", strerror(errno));
-		exit(1);
+		exit(2);
 	}
 	if(super.s_magic != EXT2_SUPER_MAGIC){
 		fprintf(stderr, "Error: Specified file is not EXT2\n");
-		exit(1);
+		exit(2);
 	}
-	
+
 	printf("SUPERBLOCK,%u,%u,%u,%u,%u,%u,%u\n",
 		   super.s_blocks_count,
 		   super.s_inodes_count,
@@ -46,5 +46,23 @@ int main(int argc, char** argv){
 		   super.s_blocks_per_group,
 		   super.s_inodes_per_group,
 		   super.s_first_ino);
+
+	/* 32 bytes */
+	struct ext2_group_desc block_group;
+	r = read(fd, &block_group, sizeof(block_group));
+	if(r < 0){
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+		exit(2);
+	}
+	printf("GROUP,%u,%u,%u,%u,%u,%u,%u,%u\n",
+		   0,
+		   super.s_blocks_count,
+		   super.s_inodes_count,
+		   block_group.bg_free_blocks_count,
+		   block_group.bg_free_inodes_count,
+		   block_group.bg_block_bitmap,
+		   block_group.bg_inode_bitmap,
+		   block_group.bg_inode_table
+		   );
 	exit(0);
 }
