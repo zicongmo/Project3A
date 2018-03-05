@@ -12,6 +12,7 @@ EMAIL: josephmo1594@ucla.edu, byang77@ucla.edu
 #include <sys/types.h>
 #include <unistd.h>	
 #include <time.h>
+#include <getopt.h>
 #include "ext2_fs.h"
 
 char time_string[64];
@@ -26,6 +27,47 @@ char get_file_type(__u16 i_mode){
 			return 'd';
 		default:
 			return '?';
+	}
+}
+
+int isVoid(struct ext2_dir_entry* dir){
+	return (dir->inode == 0) && (dir->rec_len == 0) &&
+		   (dir->name_len == 0) && (dir->file_type == 0)  &&
+		   (strlen(dir->name) == 0);
+}
+
+void printIndirectHelper(__u32 block_num, __u32 inode_num, int start, int depth, int fd){
+	if(depth == 0){
+		return;
+	}
+	__u32* block = malloc(EXT2_MIN_BLOCK_SIZE);
+	pread(fd, (void*) block, EXT2_MIN_BLOCK_SIZE,
+		  EXT2_MIN_BLOCK_SIZE * block_num);
+	int i;
+	for(i = 0; i < (int) (EXT2_MIN_BLOCK_SIZE/sizeof(__u32)); i++){
+		if(block[i] != 0){
+			printf("INDIRECT,%u,%u,%u,%u,%u\n",
+				   inode_num+1, 
+				   depth,
+				   start + i,
+				   block_num,
+				   block[i]);
+			printIndirectHelper(block[i], inode_num, start + i, depth-1, fd);							
+		}
+	}
+}
+
+void printIndirect(struct ext2_inode* inode, __u32 inode_num, int fd){
+	if(get_file_type(inode->i_mode) == 'd' || get_file_type(inode->i_mode) == 'f'){
+		if(inode->i_block[EXT2_IND_BLOCK] != 0){
+			printIndirectHelper(inode->i_block[EXT2_IND_BLOCK], inode_num, 12, 1, fd);
+		}
+		if(inode->i_block[EXT2_DIND_BLOCK] != 0){
+			printIndirectHelper(inode->i_block[EXT2_DIND_BLOCK], inode_num, 12+256, 2, fd);
+		}
+		if(inode->i_block[EXT2_TIND_BLOCK] != 0){
+			printIndirectHelper(inode->i_block[EXT2_TIND_BLOCK], inode_num, 12+256+65536, 3, fd);
+		}
 	}
 }
 
@@ -46,6 +88,24 @@ int main(int argc, char** argv){
 	if(argc != 2){
 		fprintf(stderr, "Error: Must include file system image\n");
 		exit(1);
+	}
+
+	int a;
+	while(1){
+		static struct option long_options[] = {
+			{0, 0, 0 ,0}
+		};
+		int option_index = 0;
+		a = getopt_long(argc, argv, "", long_options, &option_index);
+		if(a == -1){
+			break;
+		}
+		switch(a){
+			case '?':
+				exit(1);
+			default:
+				break;
+		}
 	}
 
 	int fd = open(argv[1], O_RDONLY);
@@ -131,7 +191,6 @@ int main(int argc, char** argv){
 				   inode.i_uid, 
 				   inode.i_gid, 
 				   inode.i_links_count);
-			/* TODO: Check this */
 			get_gmt_time(inode.i_ctime);
 			printf("%s,", time_string);
 			get_gmt_time(inode.i_mtime);
@@ -147,21 +206,30 @@ int main(int argc, char** argv){
 					printf("%u,", inode.i_block[j]);
 				}
 			}
-			/* TODO: Scan every non-zerp data block */
 			if(get_file_type(inode.i_mode) == 'd'){
-				struct ext2_dir_entry* dir_entry = malloc(sizeof(struct ext2_dir_entry));
-				pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
-					  EXT2_MIN_BLOCK_SIZE * inode.i_block[0]);
-				printf("DIRENT,%u,%u,%u,%u,%u,%s\n",
-					   i+1, 
-						,
-					   dir_entry->inode,
-					   dir_entry->rec_len,
-					   dir_entry->name_len,
-					   dir_entry->name);
+				for(j = 0; j < EXT2_N_BLOCKS; j++){
+					if(inode.i_block[j] != 0){
+						int offset = 0;
+						struct ext2_dir_entry* dir_entry = malloc(sizeof(struct ext2_dir_entry));
+						pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
+							  EXT2_MIN_BLOCK_SIZE * inode.i_block[j]);
+						while((dir_entry->rec_len) > 0 && (dir_entry->rec_len) < (int) EXT2_MIN_BLOCK_SIZE && offset < (int) EXT2_MIN_BLOCK_SIZE){
+							printf("DIRENT,%u,%u,%u,%u,%u,'%s'\n",
+								   i+1, 
+								   offset,
+								   dir_entry->inode,
+								   dir_entry->rec_len,
+								   dir_entry->name_len,
+								   dir_entry->name);
+							offset += dir_entry->rec_len;
+							pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
+								  EXT2_MIN_BLOCK_SIZE * inode.i_block[j] + offset);
+						}
+					}
+				}
 			}
+			printIndirect(&inode, i, fd);
 		}	
-
 	}
 
 	free(inode_table);
