@@ -30,19 +30,17 @@ char get_file_type(__u16 i_mode){
 	}
 }
 
-int isVoid(struct ext2_dir_entry* dir){
-	return (dir->inode == 0) && (dir->rec_len == 0) &&
-		   (dir->name_len == 0) && (dir->file_type == 0)  &&
-		   (strlen(dir->name) == 0);
-}
-
 void printIndirectHelper(__u32 block_num, __u32 inode_num, int start, int depth, int fd){
 	if(depth == 0){
 		return;
 	}
 	__u32* block = malloc(EXT2_MIN_BLOCK_SIZE);
-	pread(fd, (void*) block, EXT2_MIN_BLOCK_SIZE,
+	int p = pread(fd, (void*) block, EXT2_MIN_BLOCK_SIZE,
 		  EXT2_MIN_BLOCK_SIZE * block_num);
+	if(p < 0){
+		fprintf(stderr, "Error in pread: %s\n", strerror(errno));
+		exit(2);
+	}
 	int i;
 	for(i = 0; i < (int) (EXT2_MIN_BLOCK_SIZE/sizeof(__u32)); i++){
 		if(block[i] != 0){
@@ -155,8 +153,12 @@ int main(int argc, char** argv){
 
 	/* Free blocks */
 	char* bitmap = malloc(EXT2_MIN_BLOCK_SIZE);
-	pread(fd, (void*) bitmap, EXT2_MIN_BLOCK_SIZE,
+	r = pread(fd, (void*) bitmap, EXT2_MIN_BLOCK_SIZE,
 		  EXT2_MIN_BLOCK_SIZE * block_group.bg_block_bitmap);
+	if(r < 0){
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+		exit(2);
+	}
 	__u32 i;
 	int mask = 1;
 	for(i = 0; i < super.s_blocks_per_group; i++){
@@ -167,8 +169,12 @@ int main(int argc, char** argv){
 	}
 
 	/* Free inode */
-	pread(fd, (void*) bitmap, EXT2_MIN_BLOCK_SIZE,
+	r = pread(fd, (void*) bitmap, EXT2_MIN_BLOCK_SIZE,
 		  EXT2_MIN_BLOCK_SIZE * block_group.bg_inode_bitmap);
+	if(r < 0){
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+		exit(2);
+	}	
 	for(i = 0; i < super.s_inodes_per_group; i++){
 		int bit = (bitmap[i/8] & (mask << (i%8))) >> (i%8);
 		if(bit == 0){
@@ -178,8 +184,12 @@ int main(int argc, char** argv){
 
 	/* Inode table */
 	struct ext2_inode* inode_table = malloc(sizeof(struct ext2_inode) * super.s_inodes_per_group);
-	pread(fd, (void*) inode_table, sizeof(struct ext2_inode) * super.s_inodes_per_group,
-		  EXT2_MIN_BLOCK_SIZE * block_group.bg_inode_table);	
+	r = pread(fd, (void*) inode_table, sizeof(struct ext2_inode) * super.s_inodes_per_group,
+		  EXT2_MIN_BLOCK_SIZE * block_group.bg_inode_table);
+	if(r < 0){
+		fprintf(stderr, "Error: %s\n", strerror(errno));
+		exit(2);
+	}		  	
 	for(i = 0; i < super.s_inodes_per_group; i++){
 		struct ext2_inode inode = inode_table[i];	
 		int bit = (bitmap[i/8] & (mask << (i%8))) >> (i%8);
@@ -211,8 +221,12 @@ int main(int argc, char** argv){
 					if(inode.i_block[j] != 0){
 						int offset = 0;
 						struct ext2_dir_entry* dir_entry = malloc(sizeof(struct ext2_dir_entry));
-						pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
+						r = pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
 							  EXT2_MIN_BLOCK_SIZE * inode.i_block[j]);
+						if(r < 0){
+							fprintf(stderr, "Error: %s\n", strerror(errno));
+							exit(2);
+						}
 						while((dir_entry->rec_len) > 0 && (dir_entry->rec_len) < (int) EXT2_MIN_BLOCK_SIZE && offset < (int) EXT2_MIN_BLOCK_SIZE){
 							printf("DIRENT,%u,%u,%u,%u,%u,'%s'\n",
 								   i+1, 
@@ -222,8 +236,12 @@ int main(int argc, char** argv){
 								   dir_entry->name_len,
 								   dir_entry->name);
 							offset += dir_entry->rec_len;
-							pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
+							r = pread(fd, (void*) dir_entry, sizeof(struct ext2_dir_entry),
 								  EXT2_MIN_BLOCK_SIZE * inode.i_block[j] + offset);
+							if(r < 0){
+								fprintf(stderr, "Error: %s\n", strerror(errno));
+								exit(2);
+							}
 						}
 					}
 				}
